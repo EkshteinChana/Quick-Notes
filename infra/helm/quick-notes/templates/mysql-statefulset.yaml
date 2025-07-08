@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: quick-notes-mysql
+spec:
+  selector:
+    matchLabels:
+      app: quick-notes-mysql
+  serviceName: "quick-notes-mysql"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: quick-notes-mysql
+    spec:
+      containers:
+        - name: mysql
+          image: {{ .Values.mysql.image.repository }}:{{ .Values.mysql.image.tag }}
+          ports:
+            - containerPort: {{ .Values.mysql.service.port }}
+          envFrom:
+            - secretRef:
+                name: mysql-secret
+          readinessProbe:
+          tcpSocket:
+            port: {{ .Values.mysql.service.port }}
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 3
+          successThreshold: 1
+          timeoutSeconds: 2

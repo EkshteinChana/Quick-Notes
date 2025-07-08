@@ -1,0 +1,44 @@
+namespace: quick-notes-dev
+
+
+backend:
+  image:
+    repository: me-west1-docker.pkg.dev/valiant-realm-458909-q7/quick-notes-dev-repo/quick-notes-backend
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 5000
+  serviceAccount:
+    create: true
+    name: quick-notes-dev-ksa
+    annotations:
+      iam.gke.io/gcp-service-account: gke-sa-quick-notes-dev@valiant-realm-458909-q7.iam.gserviceaccount.com
+
+
+mysql:
+  image:
+    repository: mysql
+    tag: "8.0"
+  service:
+    port: 3306
+  secret:
+    DB_HOST: quick-notes-mysql
+    DB_PORT: "3306"
+    DB_NAME: notes
+    DB_USER: customuser
+    DB_PASSWORD: custompass
+    MYSQL_ROOT_PASSWORD: rootpass123
+
+frontend:
+  image:
+    repository: me-west1-docker.pkg.dev/valiant-realm-458909-q7/quick-notes-dev-repo/quick-notes-frontend
+    tag: latest
+  service:
+    type: LoadBalancer
+    port: 80
+    loadBalancerIP: null
+  ingress:
+    enabled: false            
+    annotations: {}
+    hosts: []
+ 

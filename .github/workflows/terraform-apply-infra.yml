@@ -1,0 +1,63 @@
+name: Terraform apply infra
+
+on:
+  # push:
+  #     branches:
+  #       - infra-dev
+  workflow_dispatch:
+env:  
+  PROJECT_ID: valiant-realm-458909-q7
+
+jobs:
+  terraform:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/dev
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.7
+
+      - name: Auth GCP
+        run: |
+          echo '${{ secrets.GCP_SA_KEY_DEV }}' > /tmp/gcp-key.json
+          
+          gcloud auth activate-service-account --key-file=/tmp/gcp-key.json
+          gcloud config set project "$PROJECT_ID"
+        env:
+          CLOUDSDK_CORE_DISABLE_PROMPTS: '1'
+
+      - name: Terraform Init
+        run: terraform init -input=false 
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
+          TF_LOG: DEBUG
+      
+      - name: Terraform import GKE cluster
+        run: |
+          terraform state rm module.gke.google_container_cluster.primary
+        env:
+            GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
+
+      # - name: Force unlock Terraform state
+      #   run: terraform force-unlock -force 1750327707396976 || echo "No lock or already unlocked"
+      #   continue-on-error: true
+      #   env:
+      #       GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
+
+        
+      - name: Terraform apply
+        run: TF_LOG=DEBUG terraform apply -lock-timeout=60s -auto-approve
+        timeout-minutes: 30
+        env:
+            GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
+
+   
+

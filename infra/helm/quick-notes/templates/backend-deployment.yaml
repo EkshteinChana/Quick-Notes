@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quick-notes-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: quick-notes-backend
+  template:
+    metadata:
+      labels:
+        app: quick-notes-backend
+    spec:
+      serviceAccountName: {{ .Values.backend.serviceAccount.name }}
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          ports:
+            - containerPort: {{ .Values.backend.service.port }}
+          envFrom:
+            - secretRef:
+                name: mysql-secret
