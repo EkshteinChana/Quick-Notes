@@ -1,4 +1,4 @@
-name: Docker Image Build & Push
+name: Docker Build & Push
 
 on:
   push:
@@ -12,45 +12,46 @@ jobs:
     runs-on: ubuntu-latest
     env:
       REGION: me-west1
-      TAG: ${{ github.run_number }}
+      TAG: ${{ github.sha }}
 
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Set environment and authenticate to GCP
+      - name: Set env and auth to GCP
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/prod" ]]; then
             echo "PROJECT_ID=quick-notes-prod-458910" >> $GITHUB_ENV
             echo "REPO_NAME=quick-notes-prod-repo" >> $GITHUB_ENV
             echo '${{ secrets.GCP_SA_KEY_PROD }}' > /tmp/gcp-key.json
-          elif [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
+          else
             echo "PROJECT_ID=valiant-realm-458909-q7" >> $GITHUB_ENV
             echo "REPO_NAME=quick-notes-dev-repo" >> $GITHUB_ENV
             echo '${{ secrets.GCP_SA_KEY_DEV }}' > /tmp/gcp-key.json
-          else
-            echo "Unknown branch: ${{ github.ref }}"
-            exit 1
           fi
 
           gcloud auth activate-service-account --key-file=/tmp/gcp-key.json
-          gcloud config set project "$(grep PROJECT_ID $GITHUB_ENV | cut -d '=' -f2)"
-          gcloud auth configure-docker "${REGION}-docker.pkg.dev"
+          gcloud config set project "$PROJECT_ID"
+          gcloud auth configure-docker "$REGION-docker.pkg.dev"
 
       - name: Build and push Backend Docker image
         run: |
-          source $GITHUB_ENV
-          docker build -t "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/quick-notes-backend:${TAG}" \
-                       -t "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/quick-notes-backend:latest" ./app/backend
-          docker push "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/quick-notes-backend:${TAG}"
-          docker push "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/quick-notes-backend:latest"
+          docker build -t "$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/quick-notes-backend:$TAG" \
+                       -t "$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/quick-notes-backend:latest" ./app/backend
+          docker push "$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/quick-notes-backend:$TAG"
+          docker push "$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/quick-notes-backend:latest"
 
       - name: Build and push Frontend Docker image
         run: |
-          source $GITHUB_ENV
-          docker build \
-           --build-arg REACT_APP_API_URL=api \
-           -t "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/quick-notes-frontend:${TAG}" \
-           -t "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/quick-notes-frontend:latest" ./app/frontend
-          docker push "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/quick-notes-frontend:${TAG}"
-          docker push "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}/quick-notes-frontend:latest"
+          docker build --build-arg REACT_APP_API_URL=api \
+            -t "$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/quick-notes-frontend:$TAG" \
+            -t "$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/quick-notes-frontend:latest" ./app/frontend
+          docker push "$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/quick-notes-frontend:$TAG"
+          docker push "$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/quick-notes-frontend:latest"
+
+      - name: Trigger Helm Deploy
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: deploy-helm
+          client-payload: '{"env": "${{ github.ref_name }}", "tag": "${{ github.sha }}"}'

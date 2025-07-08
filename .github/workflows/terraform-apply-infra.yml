@@ -1,63 +1,54 @@
 name: Terraform apply infra
 
 on:
-  # push:
-  #     branches:
-  #       - infra-dev
+  push:
+    branches:
+      - infra-dev
+      - infra-prod
   workflow_dispatch:
-env:  
-  PROJECT_ID: valiant-realm-458909-q7
 
 jobs:
   terraform:
-    name: Terraform Apply
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: infra/dev
+    env:
+      TF_VAR_environment: ${{ github.ref_name }}
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up Terraform
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.5.7
 
-      - name: Auth GCP
+      - name: Set GCP Project and Auth
         run: |
-          echo '${{ secrets.GCP_SA_KEY_DEV }}' > /tmp/gcp-key.json
-          
+          if [[ "${{ github.ref }}" == "refs/heads/infra-prod" ]]; then
+            echo '${{ secrets.GCP_SA_KEY_PROD }}' > /tmp/gcp-key.json
+            echo "PROJECT_ID=quick-notes-prod-458910" >> $GITHUB_ENV
+          else
+            echo '${{ secrets.GCP_SA_KEY_DEV }}' > /tmp/gcp-key.json
+            echo "PROJECT_ID=valiant-realm-458909-q7" >> $GITHUB_ENV
+          fi
+
           gcloud auth activate-service-account --key-file=/tmp/gcp-key.json
           gcloud config set project "$PROJECT_ID"
-        env:
-          CLOUDSDK_CORE_DISABLE_PROMPTS: '1'
 
-      - name: Terraform Init
-        run: terraform init -input=false 
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
-          TF_LOG: DEBUG
-      
-      - name: Terraform import GKE cluster
+      - name: Terraform Init + Apply
+        working-directory: infra/${{ github.ref_name }}
         run: |
-          terraform state rm module.gke.google_container_cluster.primary
-        env:
-            GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
+          terraform init
+          terraform apply -auto-approve
 
-      # - name: Force unlock Terraform state
-      #   run: terraform force-unlock -force 1750327707396976 || echo "No lock or already unlocked"
-      #   continue-on-error: true
-      #   env:
-      #       GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
+      - name: Extract env suffix (dev/prod)
+        run: |
+          echo "ENV_SUFFIX=${GITHUB_REF_NAME#infra-}" >> $GITHUB_ENV
 
-        
-      - name: Terraform apply
-        run: TF_LOG=DEBUG terraform apply -lock-timeout=60s -auto-approve
-        timeout-minutes: 30
-        env:
-            GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
 
-   
-
+      - name: Trigger Helm Deploy
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: deploy-helm
+          client-payload: '{"env": "${{ env.ENV_SUFFIX }}", "tag": "latest"}'

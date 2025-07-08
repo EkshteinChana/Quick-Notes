@@ -1,40 +1,41 @@
 name: Helm Deploy App
 
 on:
-  push:
-    branches:
-      - infra-dev
+  repository_dispatch:
+    types: [deploy-helm]
   workflow_dispatch:
-  workflow_run:
-    workflows: ["Terraform apply infra"]
-    types:
-      - completed
 
 jobs:
   helm:
-    name: Helm Deploy
     runs-on: ubuntu-latest
-   
+
     steps:
-      - name: Checkout repo
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Auth GCP
+      - name: Set env from payload
         run: |
-          echo '${{ secrets.GCP_SA_KEY_DEV }}' > /tmp/gcp-key.json
-          gcloud auth activate-service-account --key-file=/tmp/gcp-key.json
-          gcloud config set project valiant-realm-458909-q7
-        env:
-          CLOUDSDK_CORE_DISABLE_PROMPTS: '1'
+          echo "TAG=${{ github.event.client_payload.tag }}" >> $GITHUB_ENV
+          echo "BRANCH=${{ github.event.client_payload.env }}" >> $GITHUB_ENV
 
-      - name: Get GKE Credentials
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
+      - name: Authenticate to GCP
+        run: |
+          if [[ "$BRANCH" == "prod" ]]; then
+            echo '${{ secrets.GCP_SA_KEY_PROD }}' > /tmp/gcp-key.json
+            echo "PROJECT_ID=quick-notes-prod-458910" >> $GITHUB_ENV
+          else
+            echo '${{ secrets.GCP_SA_KEY_DEV }}' > /tmp/gcp-key.json
+            echo "PROJECT_ID=valiant-realm-458909-q7" >> $GITHUB_ENV
+          fi
+          gcloud auth activate-service-account --key-file=/tmp/gcp-key.json
+          gcloud config set project "$PROJECT_ID"
+
+      - name: Get GKE credentials
         uses: google-github-actions/get-gke-credentials@v2
         with:
-          cluster_name: quick-notes-dev-gke-cluster
+          cluster_name: quick-notes-${{ env.BRANCH }}-gke-cluster
           location: me-west1
-          project_id: valiant-realm-458909-q7
+          project_id: ${{ env.PROJECT_ID }}
 
 
       - name: Set up Terraform (to get outputs)
@@ -43,116 +44,34 @@ jobs:
           terraform_version: 1.5.7
 
       - name: Terraform Init
-        working-directory: infra/dev
+        working-directory: infra/${{ github.ref_name }}
         run: terraform init
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
 
       - name: Extract Terraform Outputs
-        working-directory: infra/dev
+        working-directory: infra/${{ github.ref_name }}
         id: extract
         run: |
           echo "frontend_lb_ip=$(terraform output -raw frontend_lb_ip)" >> $GITHUB_ENV
           echo "repo_url=$(terraform output -raw repo_url)" >> $GITHUB_ENV
-          echo "ksa_name=$(terraform output -raw ksa_name)" >> $GITHUB_ENV
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
 
-      - name: Set up Helm
+      - name: Setup Helm
         uses: azure/setup-helm@v4
 
-      - name: Uninstall Helm Release (TEMPORARY)
-        run: |
-          helm uninstall quick-notes --namespace quick-notes-dev || true
-
-      - name: Delete namespace
-        run: |
-          kubectl delete namespace quick-notes-dev
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
-
-      # - name: Install Helm Diff Plugin
-      #   run: helm plugin install https://github.com/databus23/helm-diff || true
-
-      # - name: Helm Diff (preview changes)
-      #   working-directory: infra/helm
-      #   run: |
-      #     helm diff upgrade --allow-unreleased quick-notes quick-notes \
-      #       --namespace quick-notes-dev \
-      #       --values quick-notes/values.yaml \
-      #       --set backend.ksa_name="$ksa_name" \
-      #       --set frontend.service.loadBalancerIP="$frontend_lb_ip" \
-      #       --set backend.image.repository="$repo_url/quick-notes-backend" \
-      #       --set frontend.image.repository="$repo_url/quick-notes-frontend"
-          
       - name: Helm Deploy
         working-directory: infra/helm
         run: |
           helm upgrade quick-notes quick-notes \
             --install \
             --create-namespace \
-            --namespace quick-notes-dev \
+            --namespace quick-notes-${{ env.BRANCH }} \
             --values quick-notes/values.yaml \
-            --debug \
-            --force \
-            --set backend.ksa_name="$ksa_name" \
-            --set frontend.service.loadBalancerIP="$frontend_lb_ip" \
+            --set backend.image.tag=${{ env.TAG }} \
+            --set frontend.image.tag=${{ env.TAG }} \
             --set backend.image.repository="$repo_url/quick-notes-backend" \
-            --set frontend.image.repository="$repo_url/quick-notes-frontend"
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
-
-      - name: Get Frontend Service Info
-        run: |
-          echo "====== Service Info ======"
-          kubectl get svc quick-notes-frontend -n quick-notes-dev -o wide
-          echo ""
-          echo "====== YAML ======"
-          kubectl get svc quick-notes-frontend -n quick-notes-dev -o yaml
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
-
-      - name: Get Frontend Pod Info
-        run: |
-          echo "====== Pod Info ======"
-          kubectl get pods -l app=quick-notes-frontend -n quick-notes-dev -o wide
-          echo ""
-          echo "====== YAML ======"
-          kubectl get pod -l app=quick-notes-frontend -n quick-notes-dev -o yaml
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
-
-      - name: Test NGINX inside pod
-        run: |
-          POD=$(kubectl get pod -l app=quick-notes-frontend -n quick-notes-dev -o jsonpath="{.items[0].metadata.name}")
-          echo "Testing from inside pod: $POD"
-          kubectl exec -n quick-notes-dev $POD -- curl -I http://localhost
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
-
-      - name: Dump NGINX logs
-        run: |
-          POD=$(kubectl get pod -l app=quick-notes-frontend -n quick-notes-dev -o jsonpath="{.items[0].metadata.name}")
-          echo "====== NGINX Logs ======"
-          kubectl logs $POD -n quick-notes-dev
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
-
-      # - name: Check Pod Logs
-      #   run: |
-      #     POD=$(kubectl get pods -n quick-notes-dev -l app=quick-notes-backend -o jsonpath="{.items[0].metadata.name}")
-      #     echo "Checking logs of pod: $POD"
-      #     kubectl logs $POD -n quick-notes-dev
-      #   env:
-      #     GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
-
-      # - name: Check mysql user
-      #   run: |
-      #     kubectl exec -it quick-notes-mysql-0 -n quick-notes-dev -- mysql -u root -p
-      #     # enter rootpass123
-      #     mysql> SELECT user, host FROM mysql.user;
-      #   env:
-      #     GOOGLE_APPLICATION_CREDENTIALS: /tmp/gcp-key.json
-
-          
-    
+            --set frontend.image.repository="$repo_url/quick-notes-frontend" \
+            --set frontend.service.loadBalancerIP="$frontend_lb_ip" \
+            --debug
