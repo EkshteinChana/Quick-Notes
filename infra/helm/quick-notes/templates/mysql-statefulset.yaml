@@ -29,3 +29,13 @@ spec:
           failureThreshold: 3
           successThreshold: 1
           timeoutSeconds: 2
+  volumeClaimTemplates:
+    - metadata:
+        name: mysql-pvc
+        annotations:
+          helm.sh/resource-policy: keep
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

@@ -41,4 +41,6 @@ frontend:
     enabled: false            
     annotations: {}
     hosts: []
+  podLabels:
+    upgrade-test: "v1"
  

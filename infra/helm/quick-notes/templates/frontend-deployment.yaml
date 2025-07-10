@@ -11,6 +11,9 @@ spec:
     metadata:
       labels:
         app: quick-notes-frontend
+        {{- with .Values.frontend.podLabels }}
+        {{- toYaml . | nindent 6 }}
+        {{- end }}
     spec:
       containers:
         - name: frontend

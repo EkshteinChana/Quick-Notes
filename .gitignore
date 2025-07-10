@@ -1,4 +1,4 @@
-infra/dev/sa-key.json
+infra/*/sa-key.json
 
 app/backend/venv
 app/backend/__pycache__
