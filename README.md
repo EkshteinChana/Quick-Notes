@@ -1,6 +1,4 @@
-# Quick Notes (Live Demo Available)
-
-Live Demo: [http://34.165.39.33:80](http://34.165.39.33:80)  
+# Quick Notes (Live Demo Available) 
 Deployed on GKE | Managed by Terraform | CI/CD via GitHub Actions
 
 ## Setup Instructions (For Testing Locally or Deploying from Scratch)
