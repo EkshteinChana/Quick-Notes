@@ -1,4 +1,4 @@
-# Quick Notes (Live Demo Available) 
+# Quick Notes
 Deployed on GKE | Managed by Terraform | CI/CD via GitHub Actions
 
 ## Setup Instructions (For Testing Locally or Deploying from Scratch)
